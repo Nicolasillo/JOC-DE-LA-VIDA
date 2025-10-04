@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ca">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>El Joc de la Vida</title>
+<style>
+  :root { --bg:#0b0f14; --fg:#e6edf3; --muted:#a9b1ba; --accent:#6bc2ff; --btn:#111a24; --grid:#182331; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial; background:radial-gradient(1000px 600px at 50% -10%, #0e1622, #0b0f14); color:var(--fg); }
+  header { padding:14px 18px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; border-bottom:1px solid #152133; position:sticky; top:0; background:rgba(9,14,20,.75); backdrop-filter:saturate(120%) blur(8px); }
+  header h1 { font-size:18px; margin:0 10px 0 0; font-weight:700; letter-spacing:.2px; }
+  .controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .controls label { font-size:13px; color:var(--muted); }
+  .controls input[type="number"] { width:70px; background:#0b121a; color:var(--fg); border:1px solid #1a2a3c; border-radius:10px; padding:6px 8px; }
+  button { background:var(--btn); color:var(--fg); border:1px solid #203248; padding:8px 12px; border-radius:12px; cursor:pointer; transition:.15s ease; font-weight:700; letter-spacing:.2px; }
+  button:hover { border-color:var(--accent); transform:translateY(-1px); box-shadow:0 6px 18px rgba(0,0,0,.25), 0 0 0 1px inset rgba(255,255,255,.05); }
+  button:active { transform:translateY(0); }
+  .primary { background:linear-gradient(180deg,#203147,#162234); border-color:#273a53; }
+  .danger { background:#26171a; border-color:#442127; }
+  .accent { border-color:var(--accent); }
+  .toggle { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px; color:var(--muted); }
+  .toggle input { accent-color:var(--accent); }
+  main { display:grid; grid-template-columns: 1fr 340px; gap:0; min-height:calc(100vh - 56px); }
+  #stage { display:flex; align-items:center; justify-content:center; padding:14px; }
+  canvas { background:#0f141b; border:1px solid #1b2836; border-radius:18px; box-shadow:0 14px 40px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.03); image-rendering: pixelated; }
+  aside { border-left:1px solid #152133; padding:16px; }
+  aside h2 { font-size:12px; text-transform:uppercase; letter-spacing:.16em; color:var(--muted); margin:0 0 12px; }
+  aside .panel { background:linear-gradient(180deg,#0d141d,#0b1017); border:1px solid #152133; border-radius:14px; padding:12px; margin-bottom:12px; box-shadow:0 12px 26px rgba(0,0,0,.3), inset 0 0 0 1px rgba(255,255,255,.03); }
+  .tip { color:var(--muted); font-size:13px; line-height:1.55; }
+  code { background:#0b1118; padding:2px 6px; border-radius:6px; border:1px solid #142132; }
+  footer { font-size:12px; color:var(--muted); padding:10px 16px; border-top:1px solid #152133; }
+  .badge { display:inline-block; font-size:11px; padding:3px 8px; border:1px solid #22324a; background:#0b121a; border-radius:999px; color:#b7c3cf; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>El Joc de la Vida</h1>
+    <div class="controls">
+      <button id="play" class="primary">▶ Reproduir</button>
+      <button id="step">⏭ Pas</button>
+      <button id="clear" class="danger">␡ Netejar</button>
+      <button id="random" class="accent">✦ Aleatori</button>
+      <label>Velocitat <input id="speed" type="range" min="1" max="60" value="14"></label>
+      <label>Graella
+        <input id="cols" type="number" min="10" max="250" value="80">×
+        <input id="rows" type="number" min="10" max="180" value="50">
+        <button id="resize">↻</button>
+      </label>
+      <label class="toggle"><input id="wrap" type="checkbox" checked> Toroïdal</label>
+      <span class="badge" id="stats">Vives: 0</span>
+    </div>
+  </header>
+
+  <main>
+    <div id="stage"><canvas id="canvas" width="1000" height="620"></canvas></div>
+    <aside>
+      <h2>Patrons</h2>
+      <div class="panel">
+        <button data-pat="glider">Glider</button>
+        <button data-pat="blinker">Blinker</button>
+        <button data-pat="toad">Toad</button>
+        <button data-pat="lwss">LWSS</button>
+        <button data-pat="gun">Gosper Gun</button>
+      </div>
+      <h2>Desar / Carregar</h2>
+      <div class="panel">
+        <button id="save">Desar</button>
+        <button id="load">Carregar</button>
+      </div>
+      <h2>Instruccions</h2>
+      <div class="panel tip">
+        • Clic per alternar cel·les vives/mortes.<br>
+        • <code>Reproduir</code> / <code>Pas</code> per evolucionar.<br>
+        • Ajusta <code>Velocitat</code> i <code>Graella</code> per a l’experiment.<br>
+        • Activa <code>Toroïdal</code> per a vores en “dònut”.<br><br>
+        Regles (Conway): viva sobreviu amb 2–3; morta neix amb 3.
+      </div>
+      <footer>
+        Implementació per al TDR (Conway 1970). Canvas 2D. Desa al localStorage.
+      </footer>
+    </aside>
+  </main>
+
+<script>
+(function(){
+  let cols = 80, rows = 50, cellSize = 10, running = false, wrap = true;
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { alpha:false });
+  const speedEl = document.getElementById('speed');
+  const wrapEl  = document.getElementById('wrap');
+  const colsEl  = document.getElementById('cols');
+  const rowsEl  = document.getElementById('rows');
+  const resizeBtn = document.getElementById('resize');
+  const stats = document.getElementById('stats');
+  let grid = makeGrid(cols, rows);
+  fitCanvas();
+
+  function makeGrid(c, r) {
+    return Array.from({length:r},()=>Array.from({length:c},()=>0));
+  }
+
+  function fitCanvas() {
+    const maxW = 1000, maxH = 620;
+    cellSize = Math.floor(Math.min(maxW/cols, maxH/rows));
+    canvas.width = cols * cellSize;
+    canvas.height = rows * cellSize;
+    draw();
+  }
+
+  function draw() {
+    ctx.fillStyle = '#0f141b';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // graella
+    ctx.strokeStyle = '#182331';
+    ctx.lineWidth = 1;
+    for (let x=0; x<=cols; x++) {
+      ctx.beginPath(); ctx.moveTo(x*cellSize+0.5, 0); ctx.lineTo(x*cellSize+0.5, canvas.height); ctx.stroke();
+    }
+    for (let y=0; y<=rows; y++) {
+      ctx.beginPath(); ctx.moveTo(0, y*cellSize+0.5); ctx.lineTo(canvas.width, y*cellSize+0.5); ctx.stroke();
+    }
+    // cel·les
+    let live = 0;
+    for (let y=0; y<rows; y++) for (let x=0; x<cols; x++) {
+      if (grid[y][x]) {
+        live++;
+        const px = x*cellSize+1, py = y*cellSize+1, sz = cellSize-1.5, r = Math.min(6, sz/3);
+        roundRect(ctx, px, py, sz, sz, r, '#6bc2ff');
+      }
+    }
+    stats.textContent = 'Vives: ' + live;
+  }
+
+  function roundRect(ctx, x, y, w, h, r, fill) {
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+
+  function neighbors(x,y) {
+    let n=0;
+    for (let dy=-1; dy<=1; dy++) for (let dx=-1; dx<=1; dx++) {
+      if (dx===0 && dy===0) continue;
+      let nx = x+dx, ny=y+dy;
+      if (wrap) {
+        if (nx<0) nx=cols-1; if (nx>=cols) nx=0;
+        if (ny<0) ny=rows-1; if (ny>=rows) ny=0;
+        n += grid[ny][nx];
+      } else {
+        if (nx>=0 && nx<cols && ny>=0 && ny<rows) n += grid[ny][nx];
+      }
+    }
+    return n;
+  }
+
+  function stepOnce() {
+    const next = makeGrid(cols, rows);
+    for (let y=0; y<rows; y++) for (let x=0; x<cols; x++) {
+      const alive = grid[y][x] === 1;
+      const k = neighbors(x,y);
+      next[y][x] = (alive && (k===2 || k===3)) || (!alive && k===3) ? 1 : 0;
+    }
+    grid = next;
+    draw();
+  }
+
+  let last = 0, runningRAF;
+  function loop(ts) {
+    if (!running) return;
+    const fps = Number(speedEl.value) || 14;
+    const interval = 1000/fps;
+    if (ts - last >= interval) { last = ts; stepOnce(); }
+    runningRAF = requestAnimationFrame(loop);
+  }
+
+  let painting = false, paintState = 1;
+  canvas.addEventListener('mousedown', e=>{
+    const {x,y} = mouseToCell(e);
+    if (x<0) return;
+    painting = true;
+    paintState = grid[y][x] ? 0 : 1;
+    grid[y][x] = paintState;
+    draw();
+  });
+  canvas.addEventListener('mousemove', e=>{
+    if (!painting) return;
+    const {x,y} = mouseToCell(e);
+    if (x<0) return;
+    grid[y][x] = paintState;
+    draw();
+  });
+  window.addEventListener('mouseup', ()=>painting=false);
+
+  function mouseToCell(e) {
+    const rect = canvas.getBoundingClientRect();
+    const cx = Math.floor((e.clientX - rect.left) / cellSize);
+    const cy = Math.floor((e.clientY - rect.top) / cellSize);
+    if (cx<0 || cx>=cols || cy<0 || cy>=rows) return {x:-1,y:-1};
+    return {x:cx,y:cy};
+  }
+
+  document.getElementById('play').onclick = (e)=>{
+    running = !running;
+    e.target.textContent = running ? '⏸ Pausa' : '▶ Reproduir';
+    if (running) requestAnimationFrame(loop); else cancelAnimationFrame(runningRAF);
+  };
+  document.getElementById('step').onclick = ()=>{ if (!running) stepOnce(); };
+  document.getElementById('clear').onclick = ()=>{ grid = makeGrid(cols, rows); draw(); };
+  document.getElementById('random').onclick = ()=>{
+    grid = makeGrid(cols, rows);
+    for (let y=0;y<rows;y++) for (let x=0;x<cols;x++) grid[y][x] = Math.random()<0.25?1:0;
+    draw();
+  };
+  document.getElementById('save').onclick = ()=>{
+    localStorage.setItem('tdr-life-grid', JSON.stringify({cols,rows,wrap,grid}));
+  };
+  document.getElementById('load').onclick = ()=>{
+    const data = localStorage.getItem('tdr-life-grid');
+    if (!data) return;
+    const obj = JSON.parse(data);
+    cols = obj.cols; rows = obj.rows; wrap = obj.wrap; grid = obj.grid;
+    colsEl.value = cols; rowsEl.value = rows; wrapEl.checked = wrap;
+    fitCanvas();
+  };
+  wrapEl.onchange = ()=>{ wrap = wrapEl.checked; };
+  document.getElementById('resize').onclick = ()=>{
+    const c = Math.max(10, Math.min(250, parseInt(colsEl.value||80,10)));
+    const r = Math.max(10, Math.min(180, parseInt(rowsEl.value||50,10)));
+    const next = makeGrid(c, r);
+    for (let y=0; y<Math.min(r, rows); y++)
+      for (let x=0; x<Math.min(c, cols); x++)
+        next[y][x] = grid[y][x];
+    cols = c; rows = r; grid = next; fitCanvas();
+  };
+
+  const patterns = {
+    glider:  [[1,0],[2,1],[0,2],[1,2],[2,2]],
+    blinker: [[0,0],[1,0],[2,0]],
+    toad:    [[1,0],[2,0],[3,0],[0,1],[1,1],[2,1]],
+    lwss:    [[1,0],[4,0],[0,1],[0,2],[4,2],[0,3],[1,3],[2,3],[3,3]],
+    gun: [
+      [1,5],[2,5],[1,6],[2,6],
+      [13,3],[14,3],[12,4],[16,4],[11,5],[17,5],[11,6],[15,6],[17,6],[18,6],[11,7],[17,7],[12,8],[16,8],[13,9],[14,9],
+      [25,1],[23,2],[25,2],[21,3],[22,3],[21,4],[22,4],[21,5],[22,5],[23,6],[25,6],[25,7],
+      [35,3],[36,3],[35,4],[36,4]
+    ]
+  };
+  document.querySelectorAll('[data-pat]').forEach(btn=>{
+    btn.onclick = ()=>{
+      grid = makeGrid(cols, rows);
+      const key = btn.getAttribute('data-pat');
+      const p = patterns[key];
+      const xs = p.map(([x])=>x), ys = p.map(([,y])=>y);
+      const w = Math.max(...xs)-Math.min(...xs)+1;
+      const h = Math.max(...ys)-Math.min(...ys)+1;
+      const ox = Math.max(1, Math.floor((cols - w)/2)-2);
+      const oy = Math.max(1, Math.floor((rows - h)/2)-2);
+      p.forEach(([x,y])=>{
+        const X = x+ox, Y = y+oy;
+        if (X>=0 && X<cols && Y>=0 && Y<rows) grid[Y][X] = 1;
+      });
+      draw();
+    };
+  });
+
+  draw();
+})();
+</script>
+</body>
+</html>
